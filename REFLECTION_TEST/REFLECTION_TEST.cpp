@@ -1,6 +1,7 @@
 //
 //This is a complete implementation of the use of reflection for serialization/deserialization operations in a neat, end user editable way
 //It should compile with any version of C++, or C with minor modifications
+//The big benefit I see from this approach is that there are no extra clases nor any extra state that needs to be created on runtime
 //
 
 //#undef UNICODE /*quickily test for ansi*/
@@ -9,15 +10,16 @@
 #include <string> //yes, nasty
 #include <Shlobj.h> //SHGetKnownFolderPath, just for completeness sake
 
+typedef int i32;
+typedef long long i64;
+typedef unsigned int u32;
+typedef float f32;
+typedef double f64;
 #ifdef UNICODE
 typedef std::wstring str;
 #else
 typedef std::string str;
 #endif
-
-typedef int i32;
-typedef float f32;
-typedef unsigned int u32;
 
 #ifdef UNICODE
 #define to_str(v) std::to_wstring(v)
@@ -31,13 +33,13 @@ bool str_found(size_t p) {
 
 //NOTE: I'm using str because of the ease of use around the macros, but actually every separator-like macro MUST be only 1 character long, not all functions were made with more than 1 character in mind, though most are
 
-i32 n_tabs;//TODO: use n_tabs for deserialization also, it would help to know how many tabs should be before an identifier to do further filtering //NOTE:this variable will need to be declared as extern
+i32 n_tabs;//TODO: use n_tabs for deserialization also, it would help to know how many tabs should be before an identifier to do further filtering //NOTE:in a big project this variable will need to be declared as extern
 
 #define _BeginSerialize() n_tabs=0
 #define _BeginDeserialize() n_tabs=0
 #define _AddTab() n_tabs++
 #define _RemoveTab() n_tabs--
-#define _generate_member(type,name,val) type name {val};
+#define _generate_member(type,name,...) type name {__VA_ARGS__};
 #define _keyvaluesepartor str(TEXT("="))
 #define _structbegin str(TEXT("{"))
 #define _structend str(TEXT("}"))
@@ -45,10 +47,10 @@ i32 n_tabs;//TODO: use n_tabs for deserialization also, it would help to know ho
 #define _newline str(TEXT("\n"))
 #define _tab TEXT('\t')
 #define _tabs str(n_tabs,_tab)
-#define _serialize_member(type,name,val) + _tabs + str(TEXT(#name)) + _keyvaluesepartor + serial::serialize(name) + _newline /*TODO:find a way to remove this last +*/
+#define _serialize_member(type,name,...) + _tabs + str(TEXT(#name)) + _keyvaluesepartor + serial::serialize(name) + _newline /*TODO:find a way to remove this last +*/
 #define _serialize_struct(var) str(TEXT(#var)) + _keyvaluesepartor + (var).serialize() + _newline
 #define _deserialize_struct(var,serialized_content) (var).deserialize(str(TEXT(#var)),serialized_content);
-#define _deserialize_member(type,name,val) serial::deserialize(name,str(TEXT(#name)),substr); /*NOTE: requires for the variable: str substr; to exist and contain the string for deserialization*/
+#define _deserialize_member(type,name,...) serial::deserialize(name,str(TEXT(#name)),substr); /*NOTE: requires for the variable: str substr; to exist and contain the string for deserialization*/
 
 //NOTE: offset should be 1 after the last character of "begin"
 //NOTE: returns str::npos if not found
@@ -240,7 +242,7 @@ namespace serial {
 }
 struct cl{
 #define foreach_cl_member(op) \
-		op(RECT,b,) \
+		op(RECT,b, 23,24,25,26) \
 		op(f32,f,1.4575724f) \
 		op(nc,n,) \
 
@@ -268,7 +270,7 @@ struct cl{
 	}
 
 };
-//TODO: add "cl" to serial namespace
+//TODO(for the reader): add "cl" to the serial namespace
 
 str load_file() {
 	PWSTR folder;
@@ -317,20 +319,46 @@ bool operator==(RECT r1, RECT r2) {
 	return r1.left = r2.left && r1.top == r2.top && r1.bottom == r2.bottom && r1.right == r2.right;
 }
 
+f64 GetPCFrequency() {
+	LARGE_INTEGER li;
+	QueryPerformanceFrequency(&li);
+	return f64(li.QuadPart) / 1000.0; //milliseconds
+}
+inline f64 StartCounter() {
+	LARGE_INTEGER li;
+	QueryPerformanceCounter(&li);
+	return f64(li.QuadPart);
+}
+inline f64 EndCounter(f64 CounterStart, f64 PCFreq = GetPCFrequency())
+{
+	LARGE_INTEGER li;
+	QueryPerformanceCounter(&li);
+	return (f64(li.QuadPart) - CounterStart) / PCFreq;
+}
+
 int main()
 {
+	f64 full_time = StartCounter();//timing info
+
+	cl default_client; //Test that default initialization works well for both simple types and structs. NOTE: you aren't requeried to default initialize if you dont want to
+	Assert(default_client.b.bottom != 0 && default_client.b.top != 0 && default_client.b.left != 0 && default_client.b.right != 0 && default_client.f!=0.f && default_client.n.a!=0 && default_client.n.br!=0);
+
 	nc nonclient; nonclient.a = 2345; nonclient.br = CreateSolidBrush(RGB(55, 66, 77));
 	cl client; client.b = { 98,97,57,56 }; client.f = 4455667788.112233f; client.n.a = 6665; client.n.br = CreateSolidBrush(RGB(255, 223, 180));
 
-	//TODO(for the reader): create a constructor style function from the reflection data you have
+	//TODO(for the reader): create a constructor style function called set_to_default(type& var) for each struct from the reflection data you have
 
 	nc copy_nonclient=nonclient;
 	cl copy_client=client;
+
+	f64 serialize_time = StartCounter();//timing info
 
 	str serialized;
 	_BeginSerialize();
 	serialized += _serialize_struct(nonclient);
 	serialized += _serialize_struct(client);
+	
+	serialize_time = EndCounter(serialize_time);//timing info
 
 	save_to_file(serialized);
 
@@ -338,10 +366,16 @@ int main()
 	client = { 0 };
 
 	const str to_deserialize = load_file();
+
+	f64 deserialize_time = StartCounter();//timing info
+
 	_BeginDeserialize();
 	_deserialize_struct(nonclient, to_deserialize);
 	_deserialize_struct(client, to_deserialize);
 
+	deserialize_time = EndCounter(deserialize_time);//timing info
+
+	//Test correct deserialization
 	Assert(nonclient.a==copy_nonclient.a);
 	Assert(ColorFromBrush(nonclient.br)== ColorFromBrush(copy_nonclient.br));
 	
@@ -350,8 +384,18 @@ int main()
 	Assert(client.n.a==copy_client.n.a);
 	Assert(ColorFromBrush(client.n.br)== ColorFromBrush(copy_client.n.br));
 
+	DeleteObject(default_client.n.br);//cleanup
 	DeleteObject(nonclient.br);
 	DeleteObject(copy_nonclient.br);
 	DeleteObject(client.n.br);
 	DeleteObject(copy_client.n.br);
+
+	printf("ELAPSED FULL:        %f ms\n", EndCounter(full_time));
+	printf("ELAPSED SERIALIZE:   %f ms\n",serialize_time);
+	printf("ELAPSED DESERIALIZE: %f ms\n",deserialize_time);//NOTE: deserialization is quite a bit slower than serialization
+
+	//TODO(for the very interested reader): implement reflection for enums. And as an extra step save the name instead of the value
+	//enum color{red = 24,green = 3,blue = 5}
+	//step 1: save and load "24" or "3" or "5"
+	//step 2: save and load "red" or "green" or "blue"
 }

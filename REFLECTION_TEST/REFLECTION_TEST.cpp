@@ -103,27 +103,27 @@ COLORREF ColorFromBrush(HBRUSH br) {
 
 //Sending everyone into a namespace avoids having to include a multitude of files in the soon to be serialization.h since you can re-open the namespace from other files
 namespace serial {
-	str serialize(i32 var) {//Basic types are done by hand since they are the building blocks
+	static str serialize(i32 var) {//Basic types are done by hand since they are the building blocks
 		str res = to_str(var);
 		return res;
 	}
-	str serialize(f32 var) {
+	static str serialize(f32 var) {//declaring the functions as static will prevent linker errors for redefinition of the function in multiple compilation units
 		str res = to_str(var);
 		return res;
 	}
 
-	str serialize(RECT var) {//Also simple structs that we know wont change
+	static str serialize(RECT var) {//Also simple structs that we know wont change
 		str res = _structbegin + str(TEXT("left")) + _keyvaluesepartor + serialize(var.left) + _memberseparator + str(TEXT("top")) + _keyvaluesepartor + serialize(var.top) + _memberseparator + str(TEXT("right")) + _keyvaluesepartor + serialize(var.right) + _memberseparator + str(TEXT("bottom")) + _keyvaluesepartor + serialize(var.bottom) + _structend;
 		return res;
 	}
 
-	str serialize(HBRUSH var) {//You can store not the pointer but some of its contents
+	static str serialize(HBRUSH var) {//You can store not the pointer but some of its contents
 		COLORREF col = ColorFromBrush(var);
 		str res = _structbegin + str(TEXT("R")) + _keyvaluesepartor + serialize(GetRValue(col)) + _memberseparator + str(TEXT("G")) + _keyvaluesepartor + serialize(GetGValue(col)) + _memberseparator + str(TEXT("B")) + _keyvaluesepartor + serialize(GetBValue(col)) + _structend;
 		return res;
 	}
 
-	bool deserialize(i32& var, str name, const str& content) {//We use references in deserialization to simplify the macros
+	static bool deserialize(i32& var, str name, const str& content) {//We use references in deserialization to simplify the macros
 		str start = name + _keyvaluesepartor;
 		str numeric_i = str(TEXT("1234567890.-"));
 		size_t s = find_identifier(content,0,start);
@@ -141,7 +141,7 @@ namespace serial {
 		return false;
 	}
 	
-	bool deserialize(f32& var, str name, const str& content) {
+	static bool deserialize(f32& var, str name, const str& content) {
 		str start = name + _keyvaluesepartor;
 		str numeric_f = str(TEXT("1234567890.-"));
 		size_t s = find_identifier(content,0,start);
@@ -159,7 +159,7 @@ namespace serial {
 		return false;
 	}
 
-	bool deserialize(HBRUSH& var, str name, const str& content) {
+	static bool deserialize(HBRUSH& var, str name, const str& content) {
 		str start = name + _keyvaluesepartor + _structbegin;
 		size_t s = find_identifier(content,0,start);
 		size_t e = find_closing_str(content, s + start.size(), _structbegin, _structend);
@@ -179,7 +179,7 @@ namespace serial {
 		return false;
 	}
 
-	bool deserialize(RECT& var, str name, const str& content) {
+	static bool deserialize(RECT& var, str name, const str& content) {
 		str start = name + _keyvaluesepartor + _structbegin;
 		size_t s = find_identifier(content, 0,start);
 		size_t e = find_closing_str(content, s+start.size(), _structbegin, _structend);
@@ -233,10 +233,10 @@ struct nc{
 	}
 };
 namespace serial {
-	str serialize(nc var) {
+	static str serialize(nc var) {
 		return var.serialize();
 	}
-	bool deserialize(nc& var, str name, const str& content) {
+	static bool deserialize(nc& var, str name, const str& content) {
 		return var.deserialize(name, content);
 	}
 }
